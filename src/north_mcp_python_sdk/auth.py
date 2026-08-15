@@ -453,9 +453,9 @@ class NorthAuthBackend(AuthenticationBackend):
         self, conn: HTTPConnection
     ) -> tuple[AuthCredentials, BaseUser] | None:
         self.logger.debug("Authenticating request from %s", conn.client)
-        # Log all headers in debug mode (be careful with sensitive data)
-        headers_debug = {k: v for k, v in conn.headers.items()}
-        self.logger.debug("Request headers: %s", headers_debug)
+        # Header values can contain bearer tokens and connector credentials.
+        # Names are sufficient for debugging authentication routing.
+        self.logger.debug("Request header names: %s", sorted(conn.headers))
 
         if not self._auth_is_configured():
             if self._has_x_north_headers(conn):

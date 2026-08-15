@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 from unittest.mock import Mock
 
 import jwt
@@ -55,6 +56,28 @@ async def test_x_north_headers_success():
         "google": "token123",
         "slack": "token456",
     }
+
+
+@pytest.mark.asyncio
+async def test_debug_logs_header_names_without_values(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Debug logging must not copy request credentials into logs."""
+    backend = NorthAuthBackend(debug=True)
+    headers = {
+        **create_x_north_headers(),
+        "Authorization": "Bearer secret-authorization-value",
+        "X-Custom-Secret": "custom-secret-value",
+    }
+    conn = create_mock_connection(headers)
+    caplog.set_level(logging.DEBUG, logger="NorthMCP.AuthBackend")
+
+    await backend.authenticate(conn)
+
+    assert "Authorization" in caplog.text
+    assert "X-North-ID-Token" in caplog.text
+    for value in headers.values():
+        assert value not in caplog.text
 
 
 @pytest.mark.asyncio

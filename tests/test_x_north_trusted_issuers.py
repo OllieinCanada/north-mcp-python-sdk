@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 from unittest.mock import Mock
 
@@ -235,5 +236,40 @@ async def test_x_north_headers_trusted_issuers_missing_kid():
 
     with pytest.raises(
         AuthenticationError, match="Token missing key identifier"
+    ):
+        await backend.authenticate(conn)
+
+
+@pytest.mark.asyncio
+async def test_trusted_issuer_rejects_jwks_client_errors(monkeypatch):
+    """JWKS client failures should be auth failures, not server errors."""
+    backend = NorthAuthBackend(
+        trusted_issuers=["https://example.okta.com"],
+    )
+    headers = create_x_north_headers_with_issuer()
+    conn = create_mock_connection(headers)
+
+    response = io.StringIO(
+        json.dumps({"jwks_uri": "https://example.okta.com/keys"})
+    )
+    monkeypatch.setattr(
+        "north_mcp_python_sdk.auth.urllib.request.urlopen",
+        lambda *_args, **_kwargs: response,
+    )
+
+    class FailingJWKClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def get_signing_key(self, _kid):
+            raise jwt.PyJWKClientError("unable to fetch signing keys")
+
+    monkeypatch.setattr(
+        "north_mcp_python_sdk.auth.PyJWKClient", FailingJWKClient
+    )
+
+    with pytest.raises(
+        AuthenticationError,
+        match="invalid user id token",
     ):
         await backend.authenticate(conn)

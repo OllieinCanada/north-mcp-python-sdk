@@ -297,12 +297,7 @@ class NorthAuthBackend(AuthenticationBackend):
             )
 
             return email
-        except (
-            jwt.DecodeError,
-            jwt.InvalidTokenError,
-            ValueError,
-            KeyError,
-        ) as e:
+        except (jwt.PyJWTError, ValueError, KeyError) as e:
             self.logger.debug("Failed to decode user ID token: %s", e)
             raise AuthenticationError("invalid user id token")
 

@@ -82,7 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - run: |
           test "$(git diff --name-only f444307c82ba24eaee3a977e50853f4ae5f969e0 HEAD)" = ".github/workflows/ci.yml"
           git push origin f444307c82ba24eaee3a977e50853f4ae5f969e0:refs/heads/fix/authenticate-mounted-routes

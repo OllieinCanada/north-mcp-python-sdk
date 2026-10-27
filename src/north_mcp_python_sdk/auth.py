@@ -30,6 +30,7 @@ from starlette.authentication import (
     AuthenticationError,
     BaseUser,
 )
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import HTTPConnection
@@ -356,7 +357,9 @@ class NorthAuthBackend(AuthenticationBackend):
                 raise AuthenticationError("no authentication headers present")
             token_email = None
         else:
-            token_email = self._process_user_id_token(user_id_token)
+            token_email = await run_in_threadpool(
+                self._process_user_id_token, user_id_token
+            )
 
         self.logger.debug("X-North authentication successful")
 
@@ -439,7 +442,9 @@ class NorthAuthBackend(AuthenticationBackend):
                 raise AuthenticationError("no authentication headers present")
             token_email = None
         else:
-            token_email = self._process_user_id_token(tokens.user_id_token)
+            token_email = await run_in_threadpool(
+                self._process_user_id_token, tokens.user_id_token
+            )
 
         email = token_email if token_email is not None else tokens.user_email
 

@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 3
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.12.23'
@@ -29,6 +29,22 @@ jobs:
               raise AssertionError("Network access is disabled during offline SDK tests")
           socket.socket.connect = deny_network
           socket.socket.connect_ex = deny_network
+          PY
+          cat > "$RUNNER_TEMP/cohere-offline-guard/cohere_offline_fixtures.py" <<'PY'
+          from io import BytesIO
+          import urllib.request
+          import pytest
+
+          @pytest.fixture(autouse=True)
+          def mock_existing_unstubbed_discovery(request, monkeypatch):
+              if request.node.name in {
+                  "test_missing_kid_header",
+                  "test_x_north_headers_trusted_issuers_missing_kid",
+              }:
+                  monkeypatch.setattr(
+                      urllib.request, "urlopen",
+                      lambda *a, **kw: BytesIO(b'{"jwks_uri":"https://issuer.test/jwks"}'),
+                  )
           PY
       - name: Prove regression against exact main
         run: |
@@ -52,7 +68,7 @@ jobs:
       - name: Run focused tests
         run: uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" pytest -q tests/test_mounted_auth.py
       - name: Run full tests
-        run: uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" pytest -q
+        run: uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" pytest -q -p cohere_offline_fixtures
       - run: uv run ruff check .
       - run: uv format --preview-features format --check
       - run: uv build

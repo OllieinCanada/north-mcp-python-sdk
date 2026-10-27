@@ -31,7 +31,9 @@ def connection(token, legacy):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("legacy", [False, True])
 async def test_missing_key_id_does_not_contact_issuer(monkeypatch, legacy):
-    discovery = Mock(side_effect=AssertionError("Unexpected discovery request"))
+    discovery = Mock(
+        side_effect=AssertionError("Unexpected discovery request"),
+    )
     monkeypatch.setattr("urllib.request.urlopen", discovery)
     backend = NorthAuthBackend(trusted_issuers=[ISSUER])
     token = jwt.encode({"iss": ISSUER, "email": "user@test"}, KEY)

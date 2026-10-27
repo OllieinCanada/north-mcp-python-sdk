@@ -24,6 +24,7 @@ import jwt
 from jwt import PyJWKClient
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from pydantic import BaseModel, Field, ValidationError
+from starlette._utils import get_route_path
 from starlette.authentication import (
     AuthCredentials,
     AuthenticationBackend,
@@ -176,7 +177,7 @@ class NorthAuthenticationMiddleware(AuthenticationMiddleware):
         if scope["type"] == "lifespan":
             return await self.app(scope, receive, send)
 
-        path = scope.get("path", "")
+        path = get_route_path(scope)
 
         if not self._should_authenticate(path):
             self.logger.debug(

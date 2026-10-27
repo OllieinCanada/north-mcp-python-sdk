@@ -1,70 +1,88 @@
-name: CI
-
+name: Cohere batch 03 reject missing JWT key IDs
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
+    branches: ['validation/cohere-19-03-v2']
 permissions:
-  contents: write
-
+  contents: read
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync --dev
-
-      - name: Check formatting
-        run: uv format --preview-features format --check
-
-      - name: Run tests
-        run: uv run pytest
-
-  tag_release:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Determine version
-        id: version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: '${{ matrix.python-version }}'
+      - run: uv sync --dev
+      - name: Prepare offline test guard
         run: |
-          python - <<'PY'
-          import tomllib
-          from pathlib import Path
-
-          data = tomllib.loads(Path("pyproject.toml").read_text())
-          version = data["project"]["version"]
-          print(f"version={version}")
-          with open("$GITHUB_OUTPUT", "a") as fh:
-              fh.write(f"version={version}\n")
+          mkdir -p "$RUNNER_TEMP/cohere-offline-guard"
+          cat > "$RUNNER_TEMP/cohere-offline-guard/sitecustomize.py" <<'PY'
+          import socket
+          def deny_network(*args, **kwargs):
+              raise AssertionError("Network access is disabled during offline SDK tests")
+          socket.socket.connect = deny_network
+          socket.socket.connect_ex = deny_network
           PY
+          cat > "$RUNNER_TEMP/cohere-offline-guard/cohere_offline_fixtures.py" <<'PY'
+          from io import BytesIO
+          import urllib.request
+          import pytest
 
-      - name: Create tag if missing
+          @pytest.fixture(autouse=True)
+          def mock_existing_unstubbed_discovery(request, monkeypatch):
+              if request.node.name in {
+                  "test_missing_kid_header",
+                  "test_x_north_headers_trusted_issuers_missing_kid",
+              }:
+                  monkeypatch.setattr(
+                      urllib.request, "urlopen",
+                      lambda *a, **kw: BytesIO(b'{"jwks_uri":"https://issuer.test/jwks"}'),
+                  )
+          PY
+      - name: Prove regression against exact main
         run: |
-          tag="${{ steps.version.outputs.version }}"
-          if git tag --list "$tag" | grep -q "$tag"; then
-            echo "Tag $tag already exists. Skipping."
-            exit 0
-          fi
-          git tag "$tag"
-          git push origin "$tag"
+          cat > "$RUNNER_TEMP/prove-before.py" <<'PY'
+          import pathlib, subprocess, xml.etree.ElementTree as ET
+          path = pathlib.Path("src/north_mcp_python_sdk/auth.py")
+          head = path.read_bytes()
+          try:
+              path.write_bytes(subprocess.check_output(["git", "show", "069489699204bd4815ab85bb5fd798b807a6a980:src/north_mcp_python_sdk/auth.py"]))
+              result = subprocess.run(["uv", "run", "pytest", "-q", "tests/test_missing_key_discovery.py", "--junitxml=/tmp/cohere-before.xml"])
+              suites = ET.parse("/tmp/cohere-before.xml").getroot()
+              failures = len(suites.findall(".//testcase/failure"))
+              errors = len(suites.findall(".//testcase/error"))
+              total = len(suites.findall(".//testcase"))
+              print("REGRESSION_BEFORE", result.returncode, total, failures, errors, flush=True)
+              assert result.returncode == 1 and total == 3 and failures == 2 and errors == 0
+          finally:
+              path.write_bytes(head)
+          PY
+          uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" python "$RUNNER_TEMP/prove-before.py"
+      - name: Run focused tests
+        run: uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" pytest -q tests/test_missing_key_discovery.py
+      - name: Run full tests
+        run: uv run env PYTHONPATH="$RUNNER_TEMP/cohere-offline-guard:$PWD/src" pytest -q -p cohere_offline_fixtures
+      - run: uv run ruff check .
+      - run: uv format --preview-features format --check
+      - run: uv build
+      - run: git diff --check
+      - run: git diff --exit-code
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          test "$(git diff --name-only 4a1ce0e2f8169593541267d14cf8ceabc61bc80f HEAD)" = ".github/workflows/ci.yml"
+          git push origin 4a1ce0e2f8169593541267d14cf8ceabc61bc80f:refs/heads/fix/reject-missing-key-before-discovery

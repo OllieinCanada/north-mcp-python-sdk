@@ -292,6 +292,8 @@ class NorthAuthBackend(AuthenticationBackend):
                 )
 
             email = decoded_token.get("email")
+            if email is not None and not isinstance(email, str):
+                raise AuthenticationError("invalid user id token")
             self.logger.debug(
                 "Successfully decoded user ID token. Email: %s", email
             )

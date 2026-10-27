@@ -512,6 +512,14 @@ class NorthAuthBackend(AuthenticationBackend):
         self.logger.debug(
             "Verifying user ID token signature against trusted issuers"
         )
+        unverified_header = jwt.get_unverified_header(jwt=raw_token)
+        kid, algorithm = (
+            unverified_header.get("kid"),
+            unverified_header.get("alg", "RS256"),
+        )
+        if not kid:
+            raise AuthenticationError("Token missing key identifier")
+
         openid_config_req = urllib.request.Request(
             url=issuer.rstrip("/") + "/.well-known/openid-configuration"
         )
@@ -532,15 +540,7 @@ class NorthAuthBackend(AuthenticationBackend):
                 "Failed to verify token: unable to fetch issuer configuration"
             )
 
-        unverified_header = jwt.get_unverified_header(jwt=raw_token)
         jwks_client = PyJWKClient(openid_config["jwks_uri"], cache_keys=True)
-        kid, algorithm = (
-            unverified_header.get("kid"),
-            unverified_header.get("alg", "RS256"),
-        )
-        if not kid:
-            raise AuthenticationError("Token missing key identifier")
-
         # This will raise an exception if the signature is invalid
         jwt.decode(
             jwt=raw_token,
